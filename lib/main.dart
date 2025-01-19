@@ -59,52 +59,81 @@ class Dock<T> extends StatefulWidget {
   State<Dock<T>> createState() => _DockState<T>();
 }
 
+/// Handles animation calculations for a single dock item
+class DockItemAnimation {
+  const DockItemAnimation({
+    this.baseScale = 1.0,
+    this.maxScale = 1.3,
+    this.neighborScale = 1.1,
+    this.baseTranslationY = 0.0,
+    this.maxTranslationY = -10.0,
+    this.neighborTranslationY = -6.0,
+    this.affectedItemsCount = 2,
+  });
+
+  final double baseScale;
+  final double maxScale;
+  final double neighborScale;
+  final double baseTranslationY;
+  final double maxTranslationY;
+  final double neighborTranslationY;
+  final int affectedItemsCount;
+
+  double _calculateProperty({
+    required int itemIndex,
+    required int? hoveredIndex,
+    required double baseValue,
+    required double maxValue,
+    required double neighborValue,
+  }) {
+    if (hoveredIndex == null) return baseValue;
+    
+    final distance = (hoveredIndex - itemIndex).abs();
+    if (distance == 0) return maxValue;
+    
+    if (distance <= affectedItemsCount) {
+      final ratio = (affectedItemsCount - distance) / affectedItemsCount;
+      return lerpDouble(baseValue, neighborValue, ratio)!;
+    }
+    
+    return baseValue;
+  }
+
+  double getScale(int itemIndex, int? hoveredIndex) {
+    return _calculateProperty(
+      itemIndex: itemIndex,
+      hoveredIndex: hoveredIndex,
+      baseValue: baseScale,
+      maxValue: maxScale,
+      neighborValue: neighborScale,
+    );
+  }
+
+  double getTranslationY(int itemIndex, int? hoveredIndex) {
+    return _calculateProperty(
+      itemIndex: itemIndex,
+      hoveredIndex: hoveredIndex,
+      baseValue: baseTranslationY,
+      maxValue: maxTranslationY,
+      neighborValue: neighborTranslationY,
+    );
+  }
+
+  Matrix4 getTransform(int itemIndex, int? hoveredIndex) {
+    return Matrix4.identity()
+      ..scale(getScale(itemIndex, hoveredIndex))
+      ..translate(0, getTranslationY(itemIndex, hoveredIndex));
+  }
+}
+
 /// State of the [Dock] used to manipulate the [_items].
 class _DockState<T> extends State<Dock<T>> {
   /// [T] items being manipulated.
   late final List<T> _items = widget.items.toList();
   int? _hoveredIndex;
   
-  double _getPropertyValue({
-    required int index,
-    required double baseValue,
-    required double maxValue,
-    required double nonHoveredMaxValue,
-    required int? hoveredIndex,
-  }) {
-    if (hoveredIndex == null) return baseValue;
-    
-    final difference = (hoveredIndex - index).abs();
-    if (difference == 0) return maxValue;
-    
-    const itemsAffected = 2;
-    if (difference <= itemsAffected) {
-      final ratio = (itemsAffected - difference) / itemsAffected;
-      return lerpDouble(baseValue, nonHoveredMaxValue, ratio)!;
-    }
-    
-    return baseValue;
-  }
-
-  double _getScale(int index) {
-    return _getPropertyValue(
-      index: index,
-      baseValue: 1.0,
-      maxValue: 1.3,
-      nonHoveredMaxValue: 1.1,
-      hoveredIndex: _hoveredIndex,
-    );
-  }
-
-  double _getTranslationY(int index) {
-    return _getPropertyValue(
-      index: index,
-      baseValue: 0,
-      maxValue: -10,
-      nonHoveredMaxValue: -6,
-      hoveredIndex: _hoveredIndex,
-    );
-  }
+  // Tworzymy jedną instancję dla wszystkich elementów
+  final _animation = const DockItemAnimation();
 
   @override
   Widget build(BuildContext context) {
@@ -122,11 +151,9 @@ class _DockState<T> extends State<Dock<T>> {
             onExit: (_) => setState(() => _hoveredIndex = null),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic, 
+              curve: Curves.easeOutCubic,
               transformAlignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..scale(_getScale(index))
-                ..translate(0, _getTranslationY(index)),
+              transform: _animation.getTransform(index, _hoveredIndex),
               child: widget.builder(_items[index]),
             ),
           );
