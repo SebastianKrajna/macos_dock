@@ -1,11 +1,11 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
-
-/// Entrypoint of the application.
+ 
+ 
 void main() {
   runApp(const MyApp());
 }
-
-/// [Widget] building the [MaterialApp].
+ 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -63,6 +63,48 @@ class Dock<T> extends StatefulWidget {
 class _DockState<T> extends State<Dock<T>> {
   /// [T] items being manipulated.
   late final List<T> _items = widget.items.toList();
+  int? _hoveredIndex;
+  
+  double _getPropertyValue({
+    required int index,
+    required double baseValue,
+    required double maxValue,
+    required double nonHoveredMaxValue,
+    required int? hoveredIndex,
+  }) {
+    if (hoveredIndex == null) return baseValue;
+    
+    final difference = (hoveredIndex - index).abs();
+    if (difference == 0) return maxValue;
+    
+    const itemsAffected = 2;
+    if (difference <= itemsAffected) {
+      final ratio = (itemsAffected - difference) / itemsAffected;
+      return lerpDouble(baseValue, nonHoveredMaxValue, ratio)!;
+    }
+    
+    return baseValue;
+  }
+
+  double _getScale(int index) {
+    return _getPropertyValue(
+      index: index,
+      baseValue: 1.0,
+      maxValue: 1.3,
+      nonHoveredMaxValue: 1.1,
+      hoveredIndex: _hoveredIndex,
+    );
+  }
+
+  double _getTranslationY(int index) {
+    return _getPropertyValue(
+      index: index,
+      baseValue: 0,
+      maxValue: -10,
+      nonHoveredMaxValue: -6,
+      hoveredIndex: _hoveredIndex,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +116,21 @@ class _DockState<T> extends State<Dock<T>> {
       padding: const EdgeInsets.all(4),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: _items.map(widget.builder).toList(),
+        children: List.generate(_items.length, (index) {
+          return MouseRegion(
+            onEnter: (_) => setState(() => _hoveredIndex = index),
+            onExit: (_) => setState(() => _hoveredIndex = null),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic, 
+              transformAlignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..scale(_getScale(index))
+                ..translate(0, _getTranslationY(index)),
+              child: widget.builder(_items[index]),
+            ),
+          );
+        }),
       ),
     );
   }
