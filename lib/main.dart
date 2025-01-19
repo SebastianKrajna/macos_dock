@@ -42,7 +42,7 @@ class MyApp extends StatelessWidget {
 }
 
 /// Dock of the reorderable [items].
-class Dock<T> extends StatefulWidget {
+class Dock<T extends Object> extends StatefulWidget {
   const Dock({
     super.key,
     this.items = const [],
@@ -127,7 +127,7 @@ class DockItemAnimation {
 }
 
 /// State of the [Dock] used to manipulate the [_items].
-class _DockState<T> extends State<Dock<T>> {
+class _DockState<T extends Object> extends State<Dock<T>> {
   /// [T] items being manipulated.
   late final List<T> _items = widget.items.toList();
   int? _hoveredIndex;
