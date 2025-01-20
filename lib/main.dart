@@ -246,9 +246,13 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
     
     _dragEndPosition = dragEndPosition;
     _itemOriginalPosition = _dragStartPosition;
-    _returningWidget = Material(
-      color: Colors.transparent,
-      child: widget.builder(_draggedItem!),
+    _returningWidget = Transform(
+      transform: _animation.getTransform(_originalIndex!, _originalIndex!),
+      alignment: Alignment.center,
+      child: Material(
+        color: Colors.transparent,
+        child: widget.builder(_draggedItem!),
+      ),
     );
     
     _returnAnimationController = AnimationController(
@@ -285,6 +289,7 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
     final currentItem = _items[index];
     final isDragged = _draggedIndex == index;
     final isReturning = _isReturning && _originalIndex == index;
+    final transform = _animation.getTransform(index, _hoveredIndex);
     
     return KeyedSubtree(
       key: _itemKeys[index],
@@ -298,9 +303,13 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
         builder: (context, candidateData, rejectedData) {
           return Draggable<T>(
             data: currentItem,
-            feedback: Material(
-              color: Colors.transparent,
-              child: widget.builder(currentItem),
+            feedback: Transform(
+              transform: _animation.getTransform(index, index),
+              alignment: Alignment.center,
+              child: Material(
+                color: Colors.transparent,
+                child: widget.builder(currentItem),
+              ),
             ),
             childWhenDragging: const SizedBox.shrink(),
             onDragStarted: () {
@@ -309,6 +318,7 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
               _originalIndex = index;
               setState(() {
                 _draggedIndex = index;
+                _hoveredIndex = index;
               });
             },
             onDraggableCanceled: (velocity, offset) {
@@ -318,7 +328,10 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
             },
             onDragEnd: (_) {
               if (!_isReturning) {
-                setState(() => _draggedIndex = null);
+                setState(() {
+                  _draggedIndex = null;
+                  _hoveredIndex = null;
+                });
               }
             },
             child: Opacity(
@@ -330,9 +343,7 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
                   duration: const Duration(milliseconds: 150),
                   curve: Curves.easeOutExpo,
                   transformAlignment: Alignment.center,
-                  transform: isDragged
-                    ? Matrix4.identity()
-                    : _animation.getTransform(index, _hoveredIndex),
+                  transform: isDragged ? Matrix4.identity() : transform,
                   child: widget.builder(currentItem),
                 ),
               ),
