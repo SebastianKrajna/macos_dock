@@ -180,12 +180,11 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
   Offset? _itemOriginalPosition;
   AnimationController? _returnAnimationController;
   Widget? _returningWidget;
-  T? _draggedItem;  // Dodajemy zmienną do przechowywania przeciąganego elementu
-  final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
-
-  // Tworzymy jedną instancję dla wszystkich elementów
-  final _animation = const DockItemAnimation();
+  T? _draggedItem;
+  int? _originalIndex;
+  bool _isReturning = false;  // Dodajemy flagę do śledzenia stanu animacji powrotu
   final Map<int, GlobalKey> _itemKeys = {};
+  final _animation = const DockItemAnimation();
 
   @override
   void initState() {
@@ -202,22 +201,27 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
   }
 
   void _handleReorder(int oldIndex, int newIndex) {
-    final item = _items[oldIndex];
-    setState(() {
-      _items.removeAt(oldIndex);
-      _items.insert(newIndex, item);
-    });
-  }
-
-  void _handleRemoveItem(int index) {
-    _listKey.currentState?.removeItem(
-      index,
-      (context, animation) => const SizedBox.shrink(),
-      duration: const Duration(milliseconds: 1),
-    );
+    if (_draggedItem == null || _originalIndex == null) return;
     
     setState(() {
-      _items.removeAt(index);
+      if (newIndex > _items.length) {
+        newIndex = _items.length;
+      }
+      final item = _items.removeAt(_originalIndex!);
+      if (newIndex > _originalIndex!) {
+        newIndex--;
+      }
+      _items.insert(newIndex, item);
+      _draggedItem = null;
+      _originalIndex = null;
+      if (_returnAnimationController != null) {
+        _returnAnimationController!.dispose();
+        _returnAnimationController = null;
+        _dragStartPosition = null;
+        _dragEndPosition = null;
+        _itemOriginalPosition = null;
+        _returningWidget = null;
+      }
     });
   }
 
@@ -233,8 +237,12 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
     );
   }
 
-  void _startReturnAnimation(Offset dragEndPosition, int itemIndex) {
-    if (_draggedItem == null) return;  // Zabezpieczenie
+  void _startReturnAnimation(Offset dragEndPosition) {
+    if (_draggedItem == null || _originalIndex == null) return;
+    
+    setState(() {
+      _isReturning = true;
+    });
     
     _dragEndPosition = dragEndPosition;
     _itemOriginalPosition = _dragStartPosition;
@@ -263,78 +271,74 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
         _dragEndPosition = null;
         _itemOriginalPosition = null;
         _returningWidget = null;
-        // Dodajemy zapisany element z powrotem do listy
-        _items.insert(itemIndex, _draggedItem!);
-        _listKey.currentState?.insertItem(
-          itemIndex, 
-          duration: const Duration(milliseconds: 150),
-        );
-        _draggedItem = null;  // Czyścimy zapisany element
+        _draggedItem = null;
+        _originalIndex = null;
+        _isReturning = false;
+        _draggedIndex = null;
       });
       _returnAnimationController!.dispose();
       _returnAnimationController = null;
     });
   }
 
-  Widget _buildItem(BuildContext context, int index, Animation<double> animation) {
-    // Tworzymy złożoną animację, która będzie szybsza i bardziej dynamiczna
-    final curvedAnimation = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutExpo,
-    );
-
-    return SizeTransition(
-      axis: Axis.horizontal,
-      sizeFactor: curvedAnimation,
-      child: FadeTransition(
-        opacity: curvedAnimation,
-        child: DragTarget<int>(
-          onWillAcceptWithDetails: (details) {
-            final draggedIndex = details.data;
-            return draggedIndex != index;
-          },
-          onAcceptWithDetails: (details) {
-            final draggedIndex = details.data;
-            _handleReorder(draggedIndex, index);
-          },
-          builder: (context, candidateData, rejectedData) {
-            return Draggable<int>(
-              data: index,
-              feedback: Material(
-                color: Colors.transparent,
-                child: widget.builder(_items[index]),
-              ),
-              childWhenDragging: const SizedBox.shrink(),
-              onDragStarted: () {
-                _dragStartPosition = _getItemPosition(index);
-                _draggedItem = _items[index];  // Zapisujemy element przed rozpoczęciem przeciągania
-                setState(() => _draggedIndex = index);
-              },
-              onDraggableCanceled: (velocity, offset) {
-                _handleRemoveItem(index);
-                _startReturnAnimation(offset, index);
+  Widget _buildDockItem(int index) {
+    final currentItem = _items[index];
+    final isDragged = _draggedIndex == index;
+    final isReturning = _isReturning && _originalIndex == index;
+    
+    return KeyedSubtree(
+      key: _itemKeys[index],
+      child: DragTarget<T>(
+        onWillAcceptWithDetails: (details) {
+          return details.data != currentItem && _draggedItem != null;
+        },
+        onAcceptWithDetails: (details) {
+          _handleReorder(_originalIndex!, index);
+        },
+        builder: (context, candidateData, rejectedData) {
+          return Draggable<T>(
+            data: currentItem,
+            feedback: Material(
+              color: Colors.transparent,
+              child: widget.builder(currentItem),
+            ),
+            childWhenDragging: const SizedBox.shrink(),
+            onDragStarted: () {
+              _dragStartPosition = _getItemPosition(index);
+              _draggedItem = currentItem;
+              _originalIndex = index;
+              setState(() {
+                _draggedIndex = index;
+              });
+            },
+            onDraggableCanceled: (velocity, offset) {
+              if (_draggedItem != null) {
+                _startReturnAnimation(offset);
+              }
+            },
+            onDragEnd: (_) {
+              if (!_isReturning) {
                 setState(() => _draggedIndex = null);
-              },
-              onDragEnd: (_) => setState(() => _draggedIndex = null),
-              child: KeyedSubtree(
-                key: _itemKeys[index],
-                child: MouseRegion(
-                  onEnter: (_) => setState(() => _hoveredIndex = index),
-                  onExit: (_) => setState(() => _hoveredIndex = null),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    curve: Curves.easeOutExpo,
-                    transformAlignment: Alignment.center,
-                    transform: _draggedIndex == index 
-                      ? Matrix4.identity()
-                      : _animation.getTransform(index, _hoveredIndex),
-                    child: widget.builder(_items[index]),
-                  ),
+              }
+            },
+            child: Opacity(
+              opacity: (isDragged || isReturning) ? 0.0 : 1.0,
+              child: MouseRegion(
+                onEnter: (_) => setState(() => _hoveredIndex = index),
+                onExit: (_) => setState(() => _hoveredIndex = null),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOutExpo,
+                  transformAlignment: Alignment.center,
+                  transform: isDragged
+                    ? Matrix4.identity()
+                    : _animation.getTransform(index, _hoveredIndex),
+                  child: widget.builder(currentItem),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -352,15 +356,14 @@ class _DockState<T extends Object> extends State<Dock<T>> with TickerProviderSta
               color: Colors.black12,
             ),
             padding: const EdgeInsets.all(4),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 64),  // wysokość ikony (48) + padding (8+8)
-              child: AnimatedList(
-                key: _listKey,
-                initialItemCount: _items.length,
-                scrollDirection: Axis.horizontal,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemBuilder: _buildItem,
+            child: Material(
+              color: Colors.transparent,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(
+                  _items.length,
+                  (index) => _buildDockItem(index),
+                ),
               ),
             ),
           ),
